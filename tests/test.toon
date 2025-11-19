@@ -1,0 +1,14 @@
+config: 
+  indent: 2
+  strict: true
+contributors: [2|]
+  - name: Alice
+  role: Maintainer
+  - name: Bob
+  role: Contributor
+features: [3|]
+  - parser
+  - encoder
+  - cli
+name: Goon
+version: 1

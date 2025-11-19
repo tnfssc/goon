@@ -1,0 +1,19 @@
+{
+  "name": "Goon",
+  "version": 1.0,
+  "features": ["parser", "encoder", "cli"],
+  "config": {
+    "indent": 2,
+    "strict": true
+  },
+  "contributors": [
+    {
+      "name": "Alice",
+      "role": "Maintainer"
+    },
+    {
+      "name": "Bob",
+      "role": "Contributor"
+    }
+  ]
+}

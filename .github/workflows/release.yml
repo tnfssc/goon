@@ -1,0 +1,58 @@
+name: "Release"
+
+on:
+  push:
+    tags: ["v*"]
+    branches: ["develop"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  MISE_EXPERIMENTAL: true
+
+jobs:
+  binary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, windows, darwin]
+        goarch: [amd64, arm64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Build the executable
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o goon-${{ matrix.goos }}-${{ matrix.goarch }}
+
+      - name: Rename the executable
+        if: ${{ matrix.goos == 'windows' }}
+        run: mv goon-${{ matrix.goos }}-${{ matrix.goarch }} goon-${{ matrix.goos }}-${{ matrix.goarch }}.exe
+
+      - name: Package the executable
+        if: ${{ ! (matrix.goos == 'windows' && matrix.goarch == 'arm64') }}
+        run: upx --best --lzma --force-macos goon*
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          preserve_order: true
+          files: |
+            goon-${{ matrix.goos }}-${{ matrix.goarch }}
+            goon-${{ matrix.goos }}-${{ matrix.goarch }}.exe
