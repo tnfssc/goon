@@ -1,4 +1,4 @@
-# Goon
+# goon
 
 > **Go** implementation of the **TOON** data format.
 
