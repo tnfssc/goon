@@ -6,7 +6,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/tnfssc/goon)](https://goreportcard.com/report/github.com/tnfssc/goon)
 [![License](https://img.shields.io/github/license/tnfssc/goon)](LICENSE.md)
 
-**Goon** is a high-performance, strictly compliant Go library and CLI for parsing and generating [TOON](https://github.com/toon-format/spec) (The Object-Oriented Notation) data.
+**goon** is a high-performance, strictly compliant Go library and CLI for parsing and generating [TOON](https://github.com/toon-format/spec) (The Object-Oriented Notation) data.
 
 ## Features
 
