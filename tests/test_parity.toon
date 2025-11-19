@@ -1,0 +1,7 @@
+# This is a comment
+# Root array test
+[3|name|role]
+  Alice|Maintainer
+  # Comment inside array
+  Bob|Contributor
+  Charlie|User

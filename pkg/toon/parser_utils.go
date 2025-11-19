@@ -1,6 +1,7 @@
 package toon
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -68,21 +69,65 @@ func ParseArrayHeaderLine(line string, defaultDelim string) *ArrayHeaderInfo {
 
 	// Parse bracket content
 	bracketContent := line[startBracket+1 : endBracket]
-	delimiter := defaultDelim
 
-	if strings.HasSuffix(bracketContent, "|") {
-		delimiter = "|"
-		bracketContent = bracketContent[:len(bracketContent)-1]
-	} else if strings.HasSuffix(bracketContent, ",") {
-		delimiter = ","
-		bracketContent = bracketContent[:len(bracketContent)-1]
-	} else if strings.HasSuffix(bracketContent, "\t") {
-		delimiter = "\t"
-		bracketContent = bracketContent[:len(bracketContent)-1]
+	// Find end of length (digits)
+	var i int
+	for i = 0; i < len(bracketContent); i++ {
+		if bracketContent[i] < '0' || bracketContent[i] > '9' {
+			break
+		}
 	}
 
-	length, err := strconv.Atoi(strings.TrimSpace(bracketContent))
+	if i == 0 {
+		// No digits at start, probably inline array [item1, item2]
+		return nil
+	}
+
+	lengthStr := bracketContent[:i]
+	length, err := strconv.Atoi(lengthStr)
 	if err != nil {
+		return nil
+	}
+
+	// Check for delimiter/separator
+	// We REQUIRE a pipe '|' to distinguish header from inline array like [1, 2]
+	// So [2] is inline array. [2|] is header. [2|name,role] is header.
+
+	rest := bracketContent[i:]
+	if len(rest) == 0 {
+		// Just [2]. Treat as inline array.
+		return nil
+	}
+
+	delimiter := defaultDelim
+	var fields []string
+
+	// Must start with |
+	if strings.HasPrefix(rest, "|") {
+		delimiter = "|"
+		rest = rest[1:]
+
+		// Parse fields inside bracket
+		if len(rest) > 0 {
+			// Fields are separated by the delimiter?
+			// If delimiter is |, fields are name|role?
+			// Or name, role?
+			// Usually | sets the delimiter for the rows.
+			// But fields in header?
+			// Let's assume fields in header are comma separated if delimiter is |, or same delimiter?
+			// If [2|name, role], delimiter is |.
+			// ParseDelimitedValues(rest, "|") -> "name, role". 1 field.
+			// ParseDelimitedValues(rest, ",") -> "name", "role". 2 fields.
+
+			// Let's try to detect if we should use comma for fields?
+			// Or just use the delimiter.
+			// If I use [2|name|role], then delimiter | works.
+
+			fields = ParseDelimitedValues(rest, delimiter)
+		}
+	} else {
+		// Starts with something else (e.g. comma).
+		// [2, 3]. Treat as inline array.
 		return nil
 	}
 
@@ -90,39 +135,98 @@ func ParseArrayHeaderLine(line string, defaultDelim string) *ArrayHeaderInfo {
 		Key:       key,
 		Length:    length,
 		Delimiter: delimiter,
+		Fields:    fields,
 	}
 
-	// Check for fields (after bracket)
+	// Check for fields (after bracket) - append if found
 	afterBracket := strings.TrimSpace(line[endBracket+1:])
 	if afterBracket != "" {
-		// Check for braces { fields } if strictly following spec, or just space separated?
-		// Reference implementation checks for braces `{...}` for fields.
-		// Let's assume fields are just space separated for now or in braces.
-		// If starts with {, find }
 		if strings.HasPrefix(afterBracket, "{") && strings.HasSuffix(afterBracket, "}") {
 			fieldsContent := afterBracket[1 : len(afterBracket)-1]
-			info.Fields = ParseDelimitedValues(fieldsContent, delimiter)
+			moreFields := ParseDelimitedValues(fieldsContent, delimiter)
+			info.Fields = append(info.Fields, moreFields...)
 		} else {
-			// Fallback or simple space separated?
-			// Reference implementation seems to require braces for fields.
-			// "Check for fields segment (braces come after bracket)"
-			// So we should look for braces.
-			// If no braces, maybe no fields.
+			// Assume space separated or delimited by delimiter?
+			// Let's use ParseDelimitedValues with delimiter
+			moreFields := ParseDelimitedValues(afterBracket, delimiter)
+			info.Fields = append(info.Fields, moreFields...)
 		}
 	}
 
 	return info
 }
 
-// ParseDelimitedValues splits a string by delimiter
+// ParseDelimitedValues splits a string by delimiter, respecting quotes
 func ParseDelimitedValues(content string, delimiter string) []string {
-	// This is a naive split. A real implementation should respect quotes.
-	// For now, we'll use simple split and trim.
-	parts := strings.Split(content, delimiter)
+	var parts []string
+	var current strings.Builder
+	inQuote := false
+	delimRunes := []rune(delimiter)
+	delimLen := len(delimRunes)
+
+	runes := []rune(content)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		if r == '"' {
+			inQuote = !inQuote
+			current.WriteRune(r)
+			continue
+		}
+
+		// Check for delimiter
+		isDelim := false
+		if !inQuote {
+			if len(delimiter) == 1 {
+				if r == delimRunes[0] {
+					isDelim = true
+				}
+			} else {
+				// Multi-character delimiter support if needed, though usually 1 char
+				if i+delimLen <= len(runes) && string(runes[i:i+delimLen]) == delimiter {
+					isDelim = true
+					i += delimLen - 1 // Skip rest of delimiter
+				}
+			}
+		}
+
+		if isDelim {
+			parts = append(parts, current.String())
+			current.Reset()
+		} else {
+			current.WriteRune(r)
+		}
+	}
+	parts = append(parts, current.String())
+
+	// Trim spaces and unquote if necessary (ParsePrimitiveToken handles unquoting)
 	for i := range parts {
 		parts[i] = strings.TrimSpace(parts[i])
 	}
 	return parts
+}
+
+// ParseInlineArray parses an inline array string e.g. "[item1, item2]"
+func ParseInlineArray(content string) (JsonArray, error) {
+	content = strings.TrimSpace(content)
+	if !strings.HasPrefix(content, "[") || !strings.HasSuffix(content, "]") {
+		return nil, fmt.Errorf("invalid inline array format")
+	}
+
+	inner := content[1 : len(content)-1]
+	if strings.TrimSpace(inner) == "" {
+		return make(JsonArray, 0), nil
+	}
+
+	// Default delimiter is comma
+	// TODO: Support custom delimiters if specified in some header-like way?
+	// For standard inline arrays, it's comma.
+	parts := ParseDelimitedValues(inner, ",")
+
+	arr := make(JsonArray, len(parts))
+	for i, p := range parts {
+		arr[i] = ParsePrimitiveToken(p)
+	}
+	return arr, nil
 }
 
 // IsArrayHeaderAfterHyphen checks if the content after a hyphen looks like an array header

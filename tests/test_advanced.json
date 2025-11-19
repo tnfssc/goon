@@ -1,0 +1,29 @@
+{
+  "inline_array": [
+    "one",
+    "two",
+    "three"
+  ],
+  "mixed_array": [
+    1,
+    "two",
+    3.5
+  ],
+  "nested_inline": {
+    "items": [
+      "a",
+      "b",
+      "c"
+    ]
+  },
+  "tabular_array": [
+    {
+      "name": "Alice",
+      "role": "Maintainer"
+    },
+    {
+      "name": "Bob",
+      "role": "Contributor"
+    }
+  ]
+}

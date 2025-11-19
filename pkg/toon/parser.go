@@ -27,15 +27,17 @@ func decodeValueFromLines(cursor *LineCursor, options DecodeOptions) (JsonValue,
 	// The TS implementation checks `isArrayHeaderAfterHyphen` but that seems specific to list items?
 	// Actually it checks `isArrayHeaderAfterHyphen` on the first line content.
 
+	// Check for root array
 	if IsArrayHeaderAfterHyphen(first.Content) {
 		headerInfo := ParseArrayHeaderLine(first.Content, DelimiterComma)
 		if headerInfo != nil {
 			cursor.Advance()
-			// Check for inline values (rest of the line after header)
-			// For now, simplified: assume header takes whole line or we need to split it properly in ParseArrayHeaderLine
-			// In TS `parseArrayHeaderLine` returns inlineValues.
-			// Let's assume for now no inline values in root array for simplicity or add it later.
 			return decodeArrayFromHeader(headerInfo, "", cursor, 0, options)
+		} else {
+			// Try inline array
+			if arr, err := ParseInlineArray(first.Content); err == nil {
+				return arr, nil
+			}
 		}
 	}
 
@@ -113,24 +115,14 @@ func decodeKeyValue(content string, cursor *LineCursor, baseDepth int, options D
 	if IsArrayHeaderAfterHyphen(rest) {
 		headerInfo := ParseArrayHeaderLine(rest, DelimiterComma)
 		if headerInfo != nil {
-			// It is an array!
-			// We need to decode the array.
-			// The cursor is currently at the line containing the key (and header).
-			// decodeArrayFromHeader expects cursor to be at the header line?
-			// No, decodeArrayFromHeader logic:
-			// "For multi-line arrays... cursor should already be positioned at the array header line, but we haven't advanced past it yet"
-			// But here we already advanced past it in decodeObject!
-			// We need to pass the cursor.
-
-			// Wait, decodeArrayFromHeader implementation:
-			// It calls decodeListArray or decodeTabularArray.
-			// decodeListArray checks `cursor.Peek()`.
-			// So it expects to read items from NEXT lines.
-			// This is correct.
-
-			// However, we need to pass the header info.
+			// It is an array header!
 			val, err := decodeArrayFromHeader(headerInfo, "", cursor, baseDepth, options)
 			return key, val, err
+		} else {
+			// Try inline array
+			if arr, err := ParseInlineArray(rest); err == nil {
+				return key, arr, nil
+			}
 		}
 	}
 

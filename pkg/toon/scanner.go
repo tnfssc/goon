@@ -113,6 +113,15 @@ func ScanLines(source string, indentSize int, strict bool) (*ScanResult, error) 
 			continue
 		}
 
+		// Handle comments
+		if strings.HasPrefix(content, "#") {
+			// Treat comments like blank lines for now (ignored in parsing structure)
+			// Or just skip them entirely?
+			// If we skip them, they won't be in Lines, so parser won't see them.
+			// This is what we want.
+			continue
+		}
+
 		// Strict mode validation
 		if strict {
 			// Check for tabs in leading whitespace
