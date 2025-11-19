@@ -11,6 +11,7 @@
 ## Features
 
 - 🚀 **Fast & Efficient**: Built with performance in mind using a custom scanner and recursive descent parser.
+- 🔄 **Marshal/Unmarshal**: Direct conversion between Go structs and TOON format with struct tag support (like `encoding/json`).
 - 🔒 **Strict Mode**: Optional strict validation to ensure your TOON files are perfectly formatted (no tabs, correct indentation).
 - 🛠️ **CLI Tools**: Includes `json2toon` and `toon2json` for easy integration into existing workflows.
 - 📦 **Zero Dependencies**: The core library has no external dependencies.
@@ -52,6 +53,50 @@ go install github.com/tnfssc/goon/cmd/goon@latest
 ## Usage
 
 ### Library
+
+#### Marshal/Unmarshal with Structs (Recommended)
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/tnfssc/goon/pkg/toon"
+)
+
+type Config struct {
+	Name     string   `toon:"name"`
+	Version  string   `toon:"version"`
+	Features []string `toon:"features"`
+}
+
+func main() {
+	// Marshal Go struct to TOON
+	config := Config{
+		Name:     "MyApp",
+		Version:  "1.0.0",
+		Features: []string{"fast", "reliable", "simple"},
+	}
+
+	toonData, err := toon.Marshal(config, toon.EncodeOptions{IndentSize: 2})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(string(toonData))
+
+	// Unmarshal TOON to Go struct
+	var decoded Config
+	err = toon.Unmarshal(toonData, &decoded, toon.DecodeOptions{IndentSize: 2})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("Decoded: %+v\n", decoded)
+}
+```
+
+#### Encode/Decode with Maps
 
 ```go
 package main
