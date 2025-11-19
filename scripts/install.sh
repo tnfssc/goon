@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Installs the latest ghstats binary for Linux or macOS.
+# Installs the latest goon binary for Linux or macOS.
 
 set -e
 

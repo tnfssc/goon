@@ -22,13 +22,13 @@
 **Linux & macOS**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tnfssc/goon/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/tnfssc/goon/develop/scripts/install.sh | sh
 ```
 
 **Windows (PowerShell)**
 
 ```bash
-irm https://raw.githubusercontent.com/tnfssc/goon/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/tnfssc/goon/develop/scripts/install.ps1 | iex
 ```
 
 ### Manual Installation

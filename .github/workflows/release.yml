@@ -38,7 +38,7 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o goon-${{ matrix.goos }}-${{ matrix.goarch }}
+        run: go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o goon-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/goon
 
       - name: Rename the executable
         if: ${{ matrix.goos == 'windows' }}

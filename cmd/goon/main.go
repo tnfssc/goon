@@ -10,6 +10,9 @@ import (
 	"github.com/tnfssc/goon/pkg/toon"
 )
 
+// version is set via ldflags during build
+var version = "dev"
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -21,6 +24,8 @@ func main() {
 		runEncode()
 	case "decode":
 		runDecode()
+	case "--version", "-v", "version":
+		fmt.Printf("goon version %s\n", version)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -31,8 +36,9 @@ func main() {
 func printUsage() {
 	fmt.Println("Usage: goon <command> [arguments]")
 	fmt.Println("Commands:")
-	fmt.Println("  encode  Convert JSON to TOON")
-	fmt.Println("  decode  Convert TOON to JSON")
+	fmt.Println("  encode   Convert JSON to TOON")
+	fmt.Println("  decode   Convert TOON to JSON")
+	fmt.Println("  version  Show version information")
 }
 
 func runEncode() {
