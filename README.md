@@ -27,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/tnfssc/goon/main/scripts/install.sh
 
 **Windows (PowerShell)**
 
-```powershell
+```bash
 irm https://raw.githubusercontent.com/tnfssc/goon/main/scripts/install.ps1 | iex
 ```
 
