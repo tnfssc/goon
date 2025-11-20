@@ -5,13 +5,13 @@ import (
 	"strings"
 )
 
-// Decode parses TOON content into a JsonValue
-func Decode(source string, options DecodeOptions) (JsonValue, error) {
+// decode parses TOON content into a JsonValue (internal function)
+func decode(source string, options DecodeOptions) (JsonValue, error) {
 	// Ensure IndentSize has a default value to prevent divide-by-zero
 	if options.IndentSize == 0 {
 		options.IndentSize = 2
 	}
-	
+
 	scanResult, err := ScanLines(source, options.IndentSize, options.Strict)
 	if err != nil {
 		return nil, err
