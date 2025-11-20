@@ -13,7 +13,7 @@
 - 🚀 **Fast & Efficient**: Built with performance in mind using a custom scanner and recursive descent parser.
 - 🔄 **Marshal/Unmarshal**: Direct conversion between Go structs and TOON format with struct tag support (like `encoding/json`).
 - 🔒 **Strict Mode**: Optional strict validation to ensure your TOON files are perfectly formatted (no tabs, correct indentation).
-- 🛠️ **CLI Tools**: Includes `json2toon` and `toon2json` for easy integration into existing workflows.
+- 🛠️ **CLI Tools**: Includes `goon encode` and `goon decode` for easy integration into existing workflows.
 - 📦 **Zero Dependencies**: The core library has no external dependencies.
 
 ## Installation
