@@ -10,6 +10,25 @@ import (
 	"github.com/tnfssc/goon/pkg/toon"
 )
 
+// encode wraps Marshal for JSON data
+func encode(data interface{}, options toon.EncodeOptions) (string, error) {
+	jsonBytes, err := toon.Marshal(data, options)
+	if err != nil {
+		return "", err
+	}
+	return string(jsonBytes), nil
+}
+
+// decode wraps Unmarshal to return map
+func decode(source string, options toon.DecodeOptions) (interface{}, error) {
+	var result interface{}
+	err := toon.Unmarshal([]byte(source), &result, options)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // version is set via ldflags during build
 var version = "dev"
 
@@ -58,7 +77,7 @@ func runEncode() {
 		os.Exit(1)
 	}
 
-	output, err := toon.Encode(data, toon.EncodeOptions{IndentSize: *indent})
+	output, err := encode(data, toon.EncodeOptions{IndentSize: *indent})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error encoding TOON: %v\n", err)
 		os.Exit(1)
@@ -79,7 +98,7 @@ func runDecode() {
 		os.Exit(1)
 	}
 
-	data, err := toon.Decode(string(input), toon.DecodeOptions{IndentSize: 2, Strict: *strict})
+	data, err := decode(string(input), toon.DecodeOptions{IndentSize: 2, Strict: *strict})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error decoding TOON: %v\n", err)
 		os.Exit(1)

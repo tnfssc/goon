@@ -27,7 +27,7 @@ type Profile struct {
 }
 
 func main() {
-	fmt.Println("=== Marshal/Unmarshal Example ===\n")
+	fmt.Println("=== Marshal/Unmarshal Example ===")
 
 	// Create a User struct
 	user := User{

@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// Encode converts a JsonValue to TOON string
-func Encode(value JsonValue, options EncodeOptions) (string, error) {
+// encode converts a JsonValue to TOON string (internal function)
+func encode(value JsonValue, options EncodeOptions) (string, error) {
 	// Ensure IndentSize has a default value
 	if options.IndentSize == 0 {
 		options.IndentSize = 2

@@ -16,7 +16,7 @@ func Marshal(v interface{}, options EncodeOptions) ([]byte, error) {
 		return nil, err
 	}
 
-	toonStr, err := Encode(jsonValue, options)
+	toonStr, err := encode(jsonValue, options)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +29,7 @@ func Marshal(v interface{}, options EncodeOptions) ([]byte, error) {
 // Struct fields can use `toon:"fieldname"` tags to specify field names in TOON data.
 // Fields with `toon:"-"` are ignored.
 func Unmarshal(data []byte, v interface{}, options DecodeOptions) error {
-	jsonValue, err := Decode(string(data), options)
+	jsonValue, err := decode(string(data), options)
 	if err != nil {
 		return err
 	}

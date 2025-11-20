@@ -54,8 +54,6 @@ go install github.com/tnfssc/goon/cmd/goon@latest
 
 ### Library
 
-#### Marshal/Unmarshal with Structs (Recommended)
-
 ```go
 package main
 
@@ -73,7 +71,7 @@ type Config struct {
 }
 
 func main() {
-	// Marshal Go struct to TOON
+	// Marshal Go struct to TOON (like json.Marshal)
 	config := Config{
 		Name:     "MyApp",
 		Version:  "1.0.0",
@@ -86,49 +84,13 @@ func main() {
 	}
 	fmt.Println(string(toonData))
 
-	// Unmarshal TOON to Go struct
+	// Unmarshal TOON to Go struct (like json.Unmarshal)
 	var decoded Config
 	err = toon.Unmarshal(toonData, &decoded, toon.DecodeOptions{IndentSize: 2})
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Printf("Decoded: %+v\n", decoded)
-}
-```
-
-#### Encode/Decode with Maps
-
-```go
-package main
-
-import (
-	"fmt"
-	"log"
-
-	"github.com/tnfssc/goon/pkg/toon"
-)
-
-func main() {
-	// Decoding TOON
-	input := `
-name: Goon
-features: [3|]
-  - parser
-  - encoder
-  - cli
-`
-	data, err := toon.Decode(input, toon.DecodeOptions{IndentSize: 2})
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Decoded: %+v\n", data)
-
-	// Encoding to TOON
-	output, err := toon.Encode(data, toon.EncodeOptions{IndentSize: 2})
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(output)
 }
 ```
 
