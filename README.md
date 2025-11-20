@@ -108,6 +108,19 @@ Convert TOON back to JSON:
 goon decode input.toon > output.json
 ```
 
+**Pipe from stdin:**
+
+```bash
+# JSON to TOON
+cat data.json | goon encode > data.toon
+
+# TOON to JSON
+cat config.toon | goon decode > config.json
+
+# Chain with other tools
+curl https://api.example.com/data.json | goon encode > api-data.toon
+```
+
 ## TOON Syntax Support
 
 Goon supports the full TOON specification, including:
