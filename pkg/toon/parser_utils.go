@@ -36,13 +36,38 @@ func ParsePrimitiveToken(token string) JsonValue {
 	// Handle quoted strings with escape sequences
 	if strings.HasPrefix(token, "\"") && strings.HasSuffix(token, "\"") && len(token) >= 2 {
 		inner := token[1 : len(token)-1]
-		// Unescape
-		inner = strings.ReplaceAll(inner, "\\\"", "\"")
-		inner = strings.ReplaceAll(inner, "\\\\", "\\")
-		inner = strings.ReplaceAll(inner, "\\n", "\n")
-		inner = strings.ReplaceAll(inner, "\\r", "\r")
-		inner = strings.ReplaceAll(inner, "\\t", "\t")
-		return inner
+		// Unescape: process escape sequences character by character
+		var result strings.Builder
+		i := 0
+		for i < len(inner) {
+			if inner[i] == '\\' && i+1 < len(inner) {
+				switch inner[i+1] {
+				case '\\':
+					result.WriteByte('\\')
+					i += 2
+				case '"':
+					result.WriteByte('"')
+					i += 2
+				case 'n':
+					result.WriteByte('\n')
+					i += 2
+				case 'r':
+					result.WriteByte('\r')
+					i += 2
+				case 't':
+					result.WriteByte('\t')
+					i += 2
+				default:
+					// Unknown escape, keep as is
+					result.WriteByte(inner[i])
+					i++
+				}
+			} else {
+				result.WriteByte(inner[i])
+				i++
+			}
+		}
+		return result.String()
 	}
 
 	return token
