@@ -33,13 +33,92 @@ func ParsePrimitiveToken(token string) JsonValue {
 	}
 
 	// Return as string (unquoted)
-	// Note: In a full implementation, we might want to handle quoted strings explicitly
-	// to support escape sequences, but for now we'll assume simple strings.
-	if strings.HasPrefix(token, "\"") && strings.HasSuffix(token, "\"") {
-		return token[1 : len(token)-1]
+	// Handle quoted strings with escape sequences
+	if strings.HasPrefix(token, "\"") && strings.HasSuffix(token, "\"") && len(token) >= 2 {
+		inner := token[1 : len(token)-1]
+		// Unescape
+		inner = strings.ReplaceAll(inner, "\\\"", "\"")
+		inner = strings.ReplaceAll(inner, "\\\\", "\\")
+		inner = strings.ReplaceAll(inner, "\\n", "\n")
+		inner = strings.ReplaceAll(inner, "\\r", "\r")
+		inner = strings.ReplaceAll(inner, "\\t", "\t")
+		return inner
 	}
 
 	return token
+}
+
+// ParseArrayHeaderLineTOONv2 parses a TOON v2 array header
+// Format: [N]: or [N]{fields}: or [N|]: (pipe delimiter) or [N	]: (tab delimiter)
+// Example: "[3]: 1,2,3" or "[2]{id,name}:" or "[3|]: a|b|c"
+func ParseArrayHeaderLineTOONv2(line string) *ArrayHeaderInfo {
+	startBracket := strings.Index(line, "[")
+	if startBracket == -1 {
+		return nil
+	}
+	endBracket := strings.Index(line, "]")
+	if endBracket == -1 || endBracket <= startBracket {
+		return nil
+	}
+
+	// Parse bracket content [N] or [N|] or [N	]
+	bracketContent := line[startBracket+1 : endBracket]
+
+	// Find end of length (digits)
+	var i int
+	for i = 0; i < len(bracketContent); i++ {
+		if bracketContent[i] < '0' || bracketContent[i] > '9' {
+			break
+		}
+	}
+
+	if i == 0 {
+		// No digits at start
+		return nil
+	}
+
+	lengthStr := bracketContent[:i]
+	length, err := strconv.Atoi(lengthStr)
+	if err != nil {
+		return nil
+	}
+
+	// Determine delimiter
+	delimiter := "," // Default is comma
+	rest := bracketContent[i:]
+
+	if strings.HasPrefix(rest, "|") {
+		delimiter = "|"
+	} else if strings.HasPrefix(rest, "\t") {
+		delimiter = "\t"
+	}
+	// If rest is empty or just whitespace, delimiter stays as comma
+
+	// Check for fields segment after bracket: {field1,field2}
+	afterBracket := strings.TrimSpace(line[endBracket+1:])
+	var fields []string
+
+	if strings.HasPrefix(afterBracket, "{") {
+		closeBrace := strings.Index(afterBracket, "}")
+		if closeBrace != -1 {
+			fieldsContent := afterBracket[1:closeBrace]
+			fields = ParseDelimitedValues(fieldsContent, delimiter)
+			afterBracket = strings.TrimSpace(afterBracket[closeBrace+1:])
+		}
+	}
+
+	// Check for colon
+	if !strings.HasPrefix(afterBracket, ":") {
+		// Not a valid array header (no colon)
+		return nil
+	}
+
+	return &ArrayHeaderInfo{
+		Key:       "", // Key will be set by caller
+		Length:    length,
+		Delimiter: delimiter,
+		Fields:    fields,
+	}
 }
 
 // ParseArrayHeaderLine parses a line to check if it's an array header
