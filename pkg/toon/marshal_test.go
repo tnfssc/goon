@@ -347,6 +347,35 @@ func TestUnmarshalPrimitiveTypes(t *testing.T) {
 	}
 }
 
+func TestEscapeSequences(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"simple newline", `"hello\nworld"`, "hello\nworld"},
+		{"simple tab", `"hello\tworld"`, "hello\tworld"},
+		{"simple quote", `"hello\"world"`, "hello\"world"},
+		{"simple backslash", `"hello\\world"`, "hello\\world"},
+		{"backslash then n", `"hello\\nworld"`, "hello\\nworld"},
+		{"carriage return", `"hello\rworld"`, "hello\rworld"},
+		{"multiple escapes", `"a\\b\"c\nd"`, "a\\b\"c\nd"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var result string
+			err := Unmarshal([]byte(tt.input), &result, DecodeOptions{IndentSize: 2})
+			if err != nil {
+				t.Fatalf("Unmarshal failed: %v", err)
+			}
+			if result != tt.expected {
+				t.Errorf("Expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
 // Helper function to check if a string contains a substring
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
