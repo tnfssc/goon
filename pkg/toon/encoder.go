@@ -24,7 +24,7 @@ func encode(value JsonValue, options EncodeOptions) (string, error) {
 // isPrimitive checks if a value is a primitive (not object or array)
 func isPrimitive(v interface{}) bool {
 	switch v.(type) {
-	case map[string]interface{}, []interface{}:
+	case map[string]interface{}, []interface{}, JsonObject, JsonArray:
 		return false
 	default:
 		return true
@@ -223,16 +223,14 @@ func encodeArrayWithKey(sb *strings.Builder, arr []interface{}, depth int, optio
 		for _, item := range arr {
 			sb.WriteString("\n")
 			sb.WriteString(indent)
-			sb.WriteString("- ")
 
 			if obj, ok := item.(map[string]interface{}); ok {
 				// Special handling for object in list
 				if len(obj) == 0 {
-					// Empty object - just the hyphen (remove the space we added)
-					// Actually, per spec, empty object is just "-" on its own line
-					// We already wrote "- ", so we need to handle this better
-					// Let's trim the space we added
+					// Empty object - just the hyphen, per spec
+					sb.WriteString("-")
 				} else {
+					sb.WriteString("- ")
 					keys := make([]string, 0, len(obj))
 					for k := range obj {
 						keys = append(keys, k)
@@ -297,6 +295,7 @@ func encodeArrayWithKey(sb *strings.Builder, arr []interface{}, depth int, optio
 				}
 			} else if nestedArr, ok := item.([]interface{}); ok {
 				// Nested array as list item
+				sb.WriteString("- ")
 				// Format: - [M]: v1,v2,... for primitive arrays
 				// or - [M]: with list items for complex arrays
 				if isPrimitiveArray(nestedArr) {
@@ -325,6 +324,7 @@ func encodeArrayWithKey(sb *strings.Builder, arr []interface{}, depth int, optio
 				}
 			} else {
 				// Primitive item
+				sb.WriteString("- ")
 				if err := encodeValue(sb, item, 0, options); err != nil {
 					return err
 				}
@@ -344,12 +344,13 @@ func encodeArrayWithKeyV1(sb *strings.Builder, arr []interface{}, depth int, opt
 	for _, item := range arr {
 		sb.WriteString("\n")
 		sb.WriteString(indent)
-		sb.WriteString("- ")
 
 		if obj, ok := item.(map[string]interface{}); ok {
 			if len(obj) == 0 {
-				// Empty object
+				// Empty object - just the hyphen, per spec
+				sb.WriteString("-")
 			} else {
+				sb.WriteString("- ")
 				keys := make([]string, 0, len(obj))
 				for k := range obj {
 					keys = append(keys, k)
@@ -410,6 +411,7 @@ func encodeArrayWithKeyV1(sb *strings.Builder, arr []interface{}, depth int, opt
 			}
 		} else if nestedArr, ok := item.([]interface{}); ok {
 			// Nested array
+			sb.WriteString("- ")
 			sb.WriteString(fmt.Sprintf("[%d|]", len(nestedArr)))
 			nestedIndent := strings.Repeat(" ", (depth+2)*options.IndentSize)
 			for _, nestedItem := range nestedArr {
@@ -422,6 +424,7 @@ func encodeArrayWithKeyV1(sb *strings.Builder, arr []interface{}, depth int, opt
 			}
 		} else {
 			// Primitive item
+			sb.WriteString("- ")
 			if err := encodeValue(sb, item, 0, options); err != nil {
 				return err
 			}
@@ -458,12 +461,13 @@ func encodeArray(sb *strings.Builder, arr []interface{}, depth int, options Enco
 		for _, item := range arr {
 			sb.WriteString("\n")
 			sb.WriteString(indent)
-			sb.WriteString("- ")
 
 			if obj, ok := item.(map[string]interface{}); ok {
 				if len(obj) == 0 {
-					// Empty object - remove the trailing space from "- "
+					// Empty object - just the hyphen, per spec
+					sb.WriteString("-")
 				} else {
+					sb.WriteString("- ")
 					keys := make([]string, 0, len(obj))
 					for k := range obj {
 						keys = append(keys, k)
@@ -523,6 +527,7 @@ func encodeArray(sb *strings.Builder, arr []interface{}, depth int, options Enco
 					}
 				}
 			} else if nestedArr, ok := item.([]interface{}); ok {
+				sb.WriteString("- ")
 				if isPrimitiveArray(nestedArr) {
 					sb.WriteString(fmt.Sprintf("[%d]:", len(nestedArr)))
 					if len(nestedArr) > 0 {
@@ -547,6 +552,7 @@ func encodeArray(sb *strings.Builder, arr []interface{}, depth int, options Enco
 					}
 				}
 			} else {
+				sb.WriteString("- ")
 				if err := encodeValue(sb, item, 0, options); err != nil {
 					return err
 				}
@@ -566,12 +572,13 @@ func encodeArrayV1(sb *strings.Builder, arr []interface{}, depth int, options En
 	for _, item := range arr {
 		sb.WriteString("\n")
 		sb.WriteString(indent)
-		sb.WriteString("- ")
 
 		if obj, ok := item.(map[string]interface{}); ok {
 			if len(obj) == 0 {
-				// Empty object
+				// Empty object - just the hyphen, per spec
+				sb.WriteString("-")
 			} else {
+				sb.WriteString("- ")
 				keys := make([]string, 0, len(obj))
 				for k := range obj {
 					keys = append(keys, k)
@@ -631,6 +638,7 @@ func encodeArrayV1(sb *strings.Builder, arr []interface{}, depth int, options En
 				}
 			}
 		} else if nestedArr, ok := item.([]interface{}); ok {
+			sb.WriteString("- ")
 			sb.WriteString(fmt.Sprintf("[%d|]", len(nestedArr)))
 			nestedIndent := strings.Repeat(" ", (depth+2)*options.IndentSize)
 			for _, nestedItem := range nestedArr {
@@ -642,6 +650,7 @@ func encodeArrayV1(sb *strings.Builder, arr []interface{}, depth int, options En
 				}
 			}
 		} else {
+			sb.WriteString("- ")
 			if err := encodeValue(sb, item, 0, options); err != nil {
 				return err
 			}

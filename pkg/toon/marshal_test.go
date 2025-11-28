@@ -357,7 +357,7 @@ func TestEscapeSequences(t *testing.T) {
 		{"simple tab", `"hello\tworld"`, "hello\tworld"},
 		{"simple quote", `"hello\"world"`, "hello\"world"},
 		{"simple backslash", `"hello\\world"`, "hello\\world"},
-		{"backslash then n", `"hello\\nworld"`, "hello\\nworld"},
+		{"literal backslash-n", `"hello\\nworld"`, "hello\\nworld"},
 		{"carriage return", `"hello\rworld"`, "hello\rworld"},
 		{"multiple escapes", `"a\\b\"c\nd"`, "a\\b\"c\nd"},
 	}
