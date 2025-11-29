@@ -1,7 +1,7 @@
-inline_array: [one, two, three]
-mixed_array: [1, "two", 3.5]
-tabular_array: [2|name|role]
+inline_array[3]: one,two,three
+mixed_array[3]: "1","two","3.5"
+tabular_array[2|]{name|role}:
   Alice|Maintainer
   Bob|Contributor
 nested_inline:
-  items: [a, b, c]
+  items[3]: a,b,c

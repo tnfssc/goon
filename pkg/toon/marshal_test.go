@@ -121,9 +121,10 @@ func TestMarshalNestedStruct(t *testing.T) {
 	}
 
 	// Should contain nested structure
+	// Note: TOON v2 requires quoting numeric-like strings, so "123" becomes \"123\"
 	dataStr := string(data)
-	if !contains(dataStr, "id: 123") {
-		t.Errorf("Missing 'id: 123' in output:\n%s", dataStr)
+	if !contains(dataStr, "id: \"123\"") {
+		t.Errorf("Missing 'id: \"123\"' in output:\n%s", dataStr)
 	}
 	if !contains(dataStr, "person:") {
 		t.Errorf("Missing 'person:' in output:\n%s", dataStr)
@@ -226,14 +227,31 @@ func TestMarshalArray(t *testing.T) {
 		t.Fatalf("Marshal failed: %v", err)
 	}
 
-	// Should produce a list format
+	// Should produce inline format with TOON v2 header [5]:
 	dataStr := string(data)
-	if !contains(dataStr, "[5|]") {
-		t.Errorf("Missing array header '[5|]' in output:\n%s", dataStr)
+	if !contains(dataStr, "[5]:") {
+		t.Errorf("Missing array header '[5]:' in output:\n%s", dataStr)
 	}
 }
 
 func TestUnmarshalArray(t *testing.T) {
+	// Test TOON v2 inline format
+	toonData := []byte(`[3]: 10,20,30`)
+
+	var result []int
+	err := Unmarshal(toonData, &result, DecodeOptions{IndentSize: 2})
+	if err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	expected := []int{10, 20, 30}
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("Expected %v, got %v", expected, result)
+	}
+}
+
+func TestUnmarshalArrayLegacyList(t *testing.T) {
+	// Test legacy list format for backward compatibility
 	toonData := []byte(`[3|]
   - 10
   - 20
@@ -324,6 +342,35 @@ func TestUnmarshalPrimitiveTypes(t *testing.T) {
 			actualVal := reflect.ValueOf(tt.target).Elem().Interface()
 			if !reflect.DeepEqual(actualVal, tt.expected) {
 				t.Errorf("Expected %v, got %v", tt.expected, actualVal)
+			}
+		})
+	}
+}
+
+func TestEscapeSequences(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"simple newline", `"hello\nworld"`, "hello\nworld"},
+		{"simple tab", `"hello\tworld"`, "hello\tworld"},
+		{"simple quote", `"hello\"world"`, "hello\"world"},
+		{"simple backslash", `"hello\\world"`, "hello\\world"},
+		{"literal backslash-n", `"hello\\nworld"`, "hello\\nworld"},
+		{"carriage return", `"hello\rworld"`, "hello\rworld"},
+		{"multiple escapes", `"a\\b\"c\nd"`, "a\\b\"c\nd"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var result string
+			err := Unmarshal([]byte(tt.input), &result, DecodeOptions{IndentSize: 2})
+			if err != nil {
+				t.Fatalf("Unmarshal failed: %v", err)
+			}
+			if result != tt.expected {
+				t.Errorf("Expected %q, got %q", tt.expected, result)
 			}
 		})
 	}

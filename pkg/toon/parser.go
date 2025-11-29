@@ -27,22 +27,45 @@ func decodeValueFromLines(cursor *LineCursor, options DecodeOptions) (JsonValue,
 		return nil, fmt.Errorf("no content to decode")
 	}
 
-	// Check for root array
-	// TODO: Implement root array detection logic if needed, for now assume object or primitive
-	// The TS implementation checks `isArrayHeaderAfterHyphen` but that seems specific to list items?
-	// Actually it checks `isArrayHeaderAfterHyphen` on the first line content.
+	// Check for root array with TOON v2 format: [N]: values
+	if strings.HasPrefix(strings.TrimSpace(first.Content), "[") {
+		// Try TOON v2 inline array format
+		headerInfo := ParseArrayHeaderLineTOONv2(first.Content)
+		if headerInfo != nil {
+			cursor.Advance()
 
-	// Check for root array
-	if IsArrayHeaderAfterHyphen(first.Content) {
-		headerInfo := ParseArrayHeaderLine(first.Content, DelimiterComma)
+			// Get inline values after colon
+			colonIdx := strings.Index(first.Content, ":")
+			if colonIdx != -1 {
+				inlineValues := strings.TrimSpace(first.Content[colonIdx+1:])
+				if inlineValues != "" {
+					values := ParseDelimitedValues(inlineValues, headerInfo.Delimiter)
+					arr := make(JsonArray, len(values))
+					for i, v := range values {
+						arr[i] = ParsePrimitiveToken(v)
+					}
+					return arr, nil
+				}
+			}
+
+			// No inline values - check for list format
+			if len(headerInfo.Fields) > 0 {
+				return decodeTabularArray(headerInfo, cursor, 0, options)
+			}
+			return decodeListArray(headerInfo, cursor, 0, options)
+		}
+
+		// Try old format with [N|]
+		headerInfo = ParseArrayHeaderLine(first.Content, DelimiterComma)
 		if headerInfo != nil {
 			cursor.Advance()
 			return decodeArrayFromHeader(headerInfo, "", cursor, 0, options)
-		} else {
-			// Try inline array
-			if arr, err := ParseInlineArray(first.Content); err == nil {
-				return arr, nil
-			}
+		}
+
+		// Try inline array like [item1, item2]
+		if arr, err := ParseInlineArray(first.Content); err == nil {
+			cursor.Advance()
+			return arr, nil
 		}
 	}
 
@@ -86,14 +109,53 @@ func decodeObject(cursor *LineCursor, baseDepth int, options DecodeOptions) (Jso
 }
 
 func decodeKeyValue(content string, cursor *LineCursor, baseDepth int, options DecodeOptions) (string, JsonValue, error) {
+	// Check if content contains an array header pattern like "key[N]:" or "key[N]{fields}:"
+	// TOON v2 format: key[N]: values or key[N]{fields}: for tabular
+
+	// Look for bracket pattern to extract key and array info
+	bracketStart := strings.Index(content, "[")
+	colonIdx := strings.Index(content, ":")
+
+	if bracketStart != -1 && colonIdx != -1 && bracketStart < colonIdx {
+		// This might be an array header like "key[N]:" or "key[N]{fields}:"
+		key := strings.TrimSpace(content[:bracketStart])
+		afterKey := content[bracketStart:]
+
+		// Parse the array header
+		headerInfo := ParseArrayHeaderLineTOONv2(afterKey)
+		if headerInfo != nil {
+			headerInfo.Key = key
+
+			// Get inline values after the colon if any
+			colonInAfterKey := strings.Index(afterKey, ":")
+			if colonInAfterKey != -1 {
+				inlineValues := strings.TrimSpace(afterKey[colonInAfterKey+1:])
+				if inlineValues != "" {
+					// Parse inline values using delimiter
+					values := ParseDelimitedValues(inlineValues, headerInfo.Delimiter)
+					arr := make(JsonArray, len(values))
+					for i, v := range values {
+						arr[i] = ParsePrimitiveToken(v)
+					}
+					return key, arr, nil
+				}
+			}
+
+			// No inline values - check for list or tabular format
+			if len(headerInfo.Fields) > 0 {
+				arr, err := decodeTabularArray(headerInfo, cursor, baseDepth, options)
+				return key, arr, err
+			}
+			arr, err := decodeListArray(headerInfo, cursor, baseDepth, options)
+			return key, arr, err
+		}
+	}
+
 	// Simple key parsing (split by first colon)
 	parts := strings.SplitN(content, ":", 2)
 	key := strings.TrimSpace(parts[0])
 
 	if len(parts) < 2 {
-		// Should not happen if called correctly, or maybe it's a key without value (empty object?)
-		// If no colon, it might be an error or specific syntax.
-		// For now assume key: value
 		return key, nil, fmt.Errorf("invalid key-value pair: %s", content)
 	}
 
@@ -109,22 +171,14 @@ func decodeKeyValue(content string, cursor *LineCursor, baseDepth int, options D
 		return key, make(JsonObject), nil
 	}
 
-	// Check for array header first (before parsing key)
-	// Actually, decodeKeyValue is called with the line content.
-	// If the line IS an array header, it's not a key-value pair.
-	// But decodeKeyValue is called by decodeObject which expects key-value.
-	// If we are here, we split by colon.
-
-	// Check for array header
-	// e.g. "key: 3 |" -> rest is "3 |"
+	// Check for array header with old format (for backward compatibility)
 	if IsArrayHeaderAfterHyphen(rest) {
 		headerInfo := ParseArrayHeaderLine(rest, DelimiterComma)
 		if headerInfo != nil {
-			// It is an array header!
 			val, err := decodeArrayFromHeader(headerInfo, "", cursor, baseDepth, options)
 			return key, val, err
 		} else {
-			// Try inline array
+			// Try inline array with brackets like [item1, item2]
 			if arr, err := ParseInlineArray(rest); err == nil {
 				return key, arr, nil
 			}
@@ -217,17 +271,25 @@ func decodeObjectFromListItem(firstLine *ParsedLine, cursor *LineCursor, baseDep
 
 	obj := JsonObject{key: value}
 
-	// Read subsequent fields at the same depth
+	// Sibling fields are at depth baseDepth + 1 (one level deeper than the list item line)
+	// because they align with the content after "- "
+	siblingDepth := baseDepth + 1
+
 	for !cursor.AtEnd() {
 		line := cursor.Peek()
 		if line == nil || line.Depth < baseDepth {
 			break
 		}
 
-		// Must be same depth and NOT a list item (which would be next item in array)
-		if line.Depth == baseDepth && !strings.HasPrefix(line.Content, ListItemPrefix) && line.Content != "-" {
+		// If we see a line at list item depth that is a list item, we're done with this object
+		if line.Depth == baseDepth && (strings.HasPrefix(line.Content, ListItemPrefix) || line.Content == "-") {
+			break
+		}
+
+		// Sibling fields should be at siblingDepth
+		if line.Depth == siblingDepth && !strings.HasPrefix(line.Content, ListItemPrefix) && line.Content != "-" {
 			cursor.Advance()
-			k, v, err := decodeKeyValue(line.Content, cursor, baseDepth, options)
+			k, v, err := decodeKeyValue(line.Content, cursor, siblingDepth, options)
 			if err != nil {
 				return nil, err
 			}

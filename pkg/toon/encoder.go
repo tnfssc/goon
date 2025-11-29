@@ -3,6 +3,7 @@ package toon
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -20,6 +21,103 @@ func encode(value JsonValue, options EncodeOptions) (string, error) {
 	return sb.String(), nil
 }
 
+// isPrimitive checks if a value is a primitive (not object or array)
+func isPrimitive(v interface{}) bool {
+	switch v.(type) {
+	case map[string]interface{}, []interface{}, JsonObject, JsonArray:
+		return false
+	default:
+		return true
+	}
+}
+
+// isPrimitiveArray checks if all items in an array are primitives
+func isPrimitiveArray(arr []interface{}) bool {
+	for _, item := range arr {
+		if !isPrimitive(item) {
+			return false
+		}
+	}
+	return true
+}
+
+// needsQuoting checks if a string value needs to be quoted
+func needsQuoting(s string) bool {
+	// Empty string needs quoting
+	if s == "" {
+		return true
+	}
+	// Leading or trailing whitespace
+	if s != strings.TrimSpace(s) {
+		return true
+	}
+	// Reserved literals
+	if s == "true" || s == "false" || s == "null" {
+		return true
+	}
+	// Numeric-like
+	if _, err := strconv.ParseFloat(s, 64); err == nil {
+		return true
+	}
+	// Leading zeros (like "05")
+	if len(s) > 1 && s[0] == '0' && s[1] >= '0' && s[1] <= '9' {
+		return true
+	}
+	// Contains colon, double quote, backslash
+	if strings.ContainsAny(s, ":\"\\") {
+		return true
+	}
+	// Contains brackets or braces
+	if strings.ContainsAny(s, "[]{}") {
+		return true
+	}
+	// Contains control characters
+	if strings.ContainsAny(s, "\n\r\t") {
+		return true
+	}
+	// Contains comma (delimiter)
+	if strings.Contains(s, ",") {
+		return true
+	}
+	// Starts with hyphen
+	if len(s) > 0 && s[0] == '-' {
+		return true
+	}
+	return false
+}
+
+// quoteString quotes and escapes a string value
+func quoteString(s string) string {
+	// Escape special characters
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	s = strings.ReplaceAll(s, "\r", "\\r")
+	s = strings.ReplaceAll(s, "\t", "\\t")
+	return "\"" + s + "\""
+}
+
+// encodePrimitiveValue encodes a primitive value, optionally quoting strings
+func encodePrimitiveValue(v interface{}) string {
+	switch val := v.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return fmt.Sprintf("%t", val)
+	case float64:
+		return fmt.Sprintf("%g", val)
+	case int:
+		return fmt.Sprintf("%d", val)
+	case string:
+		if needsQuoting(val) {
+			return quoteString(val)
+		}
+		return val
+	default:
+		return fmt.Sprintf("%v", val)
+	}
+}
+
 func encodeValue(sb *strings.Builder, value JsonValue, depth int, options EncodeOptions) error {
 
 	switch v := value.(type) {
@@ -33,8 +131,11 @@ func encodeValue(sb *strings.Builder, value JsonValue, depth int, options Encode
 	case int:
 		sb.WriteString(fmt.Sprintf("%d", v))
 	case string:
-		// TODO: Handle quoting if needed
-		sb.WriteString(v)
+		if needsQuoting(v) {
+			sb.WriteString(quoteString(v))
+		} else {
+			sb.WriteString(v)
+		}
 	case map[string]interface{}:
 		return encodeObject(sb, v, depth, options)
 	case []interface{}:
@@ -59,41 +160,30 @@ func encodeObject(sb *strings.Builder, obj map[string]interface{}, depth int, op
 	for i, key := range keys {
 		val := obj[key]
 
-		// If it's the first item and we are not at root (depth > 0), we might need newline if called from parent
-		// But `encodeValue` is usually called for the value part.
-		// Actually, `encodeObject` is called when the value IS an object.
-
-		// If we are at root (depth 0), we just list keys.
-		// If we are nested, we need to ensure we are on a new line?
-		// The caller handles the key and colon.
-
-		// Wait, `encodeValue` is called for the VALUE.
-		// If the value is an object, we need to print its fields on NEW lines with indentation.
-		// BUT, if the object is empty, we print `{}`? Or just nothing?
-		// TOON doesn't use braces. Empty object is just nothing?
-
 		if i > 0 {
 			sb.WriteString("\n")
 		}
 
 		sb.WriteString(indent)
 		sb.WriteString(key)
-		sb.WriteString(": ")
 
 		// Check if value is complex (object or array) or primitive
 		switch val := val.(type) {
 		case map[string]interface{}:
-			sb.WriteString("\n")
-			if err := encodeObject(sb, val, depth+1, options); err != nil {
-				return err
+			sb.WriteString(":")
+			if len(val) > 0 {
+				sb.WriteString("\n")
+				if err := encodeObject(sb, val, depth+1, options); err != nil {
+					return err
+				}
 			}
 		case []interface{}:
-			// Array handling
-			// Print on same line: "key: 3 |"
-			if err := encodeArray(sb, val, depth, options); err != nil {
+			// Array handling - encode header inline with key
+			if err := encodeArrayWithKey(sb, val, depth, options); err != nil {
 				return err
 			}
 		default:
+			sb.WriteString(": ")
 			if err := encodeValue(sb, val, depth, options); err != nil {
 				return err
 			}
@@ -102,84 +192,195 @@ func encodeObject(sb *strings.Builder, obj map[string]interface{}, depth int, op
 	return nil
 }
 
-func encodeArray(sb *strings.Builder, arr []interface{}, depth int, options EncodeOptions) error {
-	// Use list format for now
-	// Header: length |
-	// But simple list is just items with "- "
+// encodeArrayWithKey encodes an array as a value for a key (key already written, need to write header and content)
+func encodeArrayWithKey(sb *strings.Builder, arr []interface{}, depth int, options EncodeOptions) error {
+	// V2 format: key[N]: for comma delimiter (default)
+	// V1 format: key: [N|] with list items
 
-	// We should output the header first if we want to be explicit, or just list items.
-	// TOON arrays usually start with a header line if they are not inline.
-	// e.g. "items: 3" (if key is items)
-	// But here we are encoding the VALUE. The key was already printed by parent.
-	// So we just print the array content.
+	if options.Version == V1 {
+		return encodeArrayWithKeyV1(sb, arr, depth, options)
+	}
 
-	// If we want to use the header syntax:
-	// The parent printed "key: ".
-	// We print "3 |" (length and delimiter)
-	// Then items.
+	// V2 format (default)
+	if isPrimitiveArray(arr) {
+		// Inline format for primitive arrays
+		sb.WriteString(fmt.Sprintf("[%d]:", len(arr)))
+		if len(arr) > 0 {
+			sb.WriteString(" ")
+			for i, item := range arr {
+				if i > 0 {
+					sb.WriteString(",")
+				}
+				sb.WriteString(encodePrimitiveValue(item))
+			}
+		}
+	} else {
+		// List format for arrays with objects or nested arrays
+		sb.WriteString(fmt.Sprintf("[%d]:", len(arr)))
 
-	// Use list format with bracket syntax: [length|]
-	sb.WriteString(fmt.Sprintf("[%d|]", len(arr)))
+		indent := strings.Repeat(" ", (depth+1)*options.IndentSize)
+
+		for _, item := range arr {
+			sb.WriteString("\n")
+			sb.WriteString(indent)
+
+			if obj, ok := item.(map[string]interface{}); ok {
+				// Special handling for object in list
+				if len(obj) == 0 {
+					// Empty object - just the hyphen, per spec
+					sb.WriteString("-")
+				} else {
+					sb.WriteString("- ")
+					keys := make([]string, 0, len(obj))
+					for k := range obj {
+						keys = append(keys, k)
+					}
+					sort.Strings(keys)
+
+					firstKey := keys[0]
+					firstVal := obj[firstKey]
+
+					// Write first key
+					sb.WriteString(firstKey)
+
+					// Check if first val is an array (needs special handling)
+					if arrVal, ok := firstVal.([]interface{}); ok {
+						if err := encodeArrayWithKey(sb, arrVal, depth+1, options); err != nil {
+							return err
+						}
+					} else if objVal, ok := firstVal.(map[string]interface{}); ok {
+						sb.WriteString(":")
+						if len(objVal) > 0 {
+							sb.WriteString("\n")
+							if err := encodeObject(sb, objVal, depth+2, options); err != nil {
+								return err
+							}
+						}
+					} else {
+						sb.WriteString(": ")
+						if err := encodeValue(sb, firstVal, 0, options); err != nil {
+							return err
+						}
+					}
+
+					// Remaining keys at depth+1
+					subIndent := strings.Repeat(" ", (depth+1)*options.IndentSize)
+					for i := 1; i < len(keys); i++ {
+						k := keys[i]
+						v := obj[k]
+						sb.WriteString("\n")
+						sb.WriteString(subIndent)
+						sb.WriteString(k)
+
+						// Check if value is array or object
+						if arrVal, ok := v.([]interface{}); ok {
+							if err := encodeArrayWithKey(sb, arrVal, depth+1, options); err != nil {
+								return err
+							}
+						} else if objVal, ok := v.(map[string]interface{}); ok {
+							sb.WriteString(":")
+							if len(objVal) > 0 {
+								sb.WriteString("\n")
+								if err := encodeObject(sb, objVal, depth+2, options); err != nil {
+									return err
+								}
+							}
+						} else {
+							sb.WriteString(": ")
+							if err := encodeValue(sb, v, 0, options); err != nil {
+								return err
+							}
+						}
+					}
+				}
+			} else if nestedArr, ok := item.([]interface{}); ok {
+				// Nested array as list item
+				sb.WriteString("- ")
+				// Format: - [M]: v1,v2,... for primitive arrays
+				// or - [M]: with list items for complex arrays
+				if isPrimitiveArray(nestedArr) {
+					sb.WriteString(fmt.Sprintf("[%d]:", len(nestedArr)))
+					if len(nestedArr) > 0 {
+						sb.WriteString(" ")
+						for i, nestedItem := range nestedArr {
+							if i > 0 {
+								sb.WriteString(",")
+							}
+							sb.WriteString(encodePrimitiveValue(nestedItem))
+						}
+					}
+				} else {
+					// Complex nested array - use list format
+					sb.WriteString(fmt.Sprintf("[%d]:", len(nestedArr)))
+					nestedIndent := strings.Repeat(" ", (depth+2)*options.IndentSize)
+					for _, nestedItem := range nestedArr {
+						sb.WriteString("\n")
+						sb.WriteString(nestedIndent)
+						sb.WriteString("- ")
+						if err := encodeValue(sb, nestedItem, depth+2, options); err != nil {
+							return err
+						}
+					}
+				}
+			} else {
+				// Primitive item
+				sb.WriteString("- ")
+				if err := encodeValue(sb, item, 0, options); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// encodeArrayWithKeyV1 encodes an array in TOON v1 format (list style with [N|])
+func encodeArrayWithKeyV1(sb *strings.Builder, arr []interface{}, depth int, options EncodeOptions) error {
+	// V1 format: key: [N|] with list items for all arrays
+	sb.WriteString(fmt.Sprintf(": [%d|]", len(arr)))
 
 	indent := strings.Repeat(" ", (depth+1)*options.IndentSize)
 
 	for _, item := range arr {
 		sb.WriteString("\n")
 		sb.WriteString(indent)
-		sb.WriteString("- ")
-
-		// If item is object, we can inline the first field or nest it
-		// For simplicity, let's just encode the value
-		// If it's an object, `encodeValue` -> `encodeObject` might try to print fields.
-		// We need to handle the "object in list item" case specially if we want compact syntax.
-		// e.g. "- name: John"
 
 		if obj, ok := item.(map[string]interface{}); ok {
-			// Special handling for object in list
-			// Pick first key? Or just new line?
-			// Let's try to be compact: "- firstKey: firstVal"
-			// Then other keys on next lines.
+			if len(obj) == 0 {
+				// Empty object - just the hyphen, per spec
+				sb.WriteString("-")
+			} else {
+				sb.WriteString("- ")
+				keys := make([]string, 0, len(obj))
+				for k := range obj {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
 
-			keys := make([]string, 0, len(obj))
-			for k := range obj {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-
-			if len(keys) > 0 {
 				firstKey := keys[0]
-				sb.WriteString(firstKey)
-				sb.WriteString(": ")
-
 				firstVal := obj[firstKey]
-				// Encode first value
-				// If first value is primitive, it goes on same line.
-				// If it's complex, it might need newline.
 
-				// Simplified: just call encodeValue for first val
-				// But we need to handle subsequent keys.
+				sb.WriteString(firstKey)
 
-				// This is getting complex for a simple encoder.
-				// Let's just delegate to encodeValue but we need to handle the indentation of subsequent keys.
-				// Actually, `encodeObject` uses `depth`.
-				// If we call `encodeObject` here, it will print fields.
-				// But we already printed "- ".
-				// If we pass `depth+1`, it will indent relative to list item?
-
-				// Let's do this:
-				// Print first key-value manually.
-				// Then print rest of keys with indentation.
-
-				// Check if first val is primitive
-				switch firstVal.(type) {
-				case map[string]interface{}, []interface{}:
-					sb.WriteString("\n")
-					encodeValue(sb, firstVal, depth+2, options)
-				default:
-					encodeValue(sb, firstVal, 0, options) // 0 depth because it's inline
+				if arrVal, ok := firstVal.([]interface{}); ok {
+					if err := encodeArrayWithKeyV1(sb, arrVal, depth+1, options); err != nil {
+						return err
+					}
+				} else if objVal, ok := firstVal.(map[string]interface{}); ok {
+					sb.WriteString(":")
+					if len(objVal) > 0 {
+						sb.WriteString("\n")
+						if err := encodeObject(sb, objVal, depth+2, options); err != nil {
+							return err
+						}
+					}
+				} else {
+					sb.WriteString(": ")
+					if err := encodeValue(sb, firstVal, 0, options); err != nil {
+						return err
+					}
 				}
 
-				// Remaining keys
 				subIndent := strings.Repeat(" ", (depth+1)*options.IndentSize)
 				for i := 1; i < len(keys); i++ {
 					k := keys[i]
@@ -187,19 +388,269 @@ func encodeArray(sb *strings.Builder, arr []interface{}, depth int, options Enco
 					sb.WriteString("\n")
 					sb.WriteString(subIndent)
 					sb.WriteString(k)
-					sb.WriteString(": ")
-					// Encode value
-					switch v.(type) {
-					case map[string]interface{}, []interface{}:
-						sb.WriteString("\n")
-						encodeValue(sb, v, depth+2, options)
-					default:
-						encodeValue(sb, v, 0, options)
+
+					if arrVal, ok := v.([]interface{}); ok {
+						if err := encodeArrayWithKeyV1(sb, arrVal, depth+1, options); err != nil {
+							return err
+						}
+					} else if objVal, ok := v.(map[string]interface{}); ok {
+						sb.WriteString(":")
+						if len(objVal) > 0 {
+							sb.WriteString("\n")
+							if err := encodeObject(sb, objVal, depth+2, options); err != nil {
+								return err
+							}
+						}
+					} else {
+						sb.WriteString(": ")
+						if err := encodeValue(sb, v, 0, options); err != nil {
+							return err
+						}
 					}
 				}
 			}
+		} else if nestedArr, ok := item.([]interface{}); ok {
+			// Nested array
+			sb.WriteString("- ")
+			sb.WriteString(fmt.Sprintf("[%d|]", len(nestedArr)))
+			nestedIndent := strings.Repeat(" ", (depth+2)*options.IndentSize)
+			for _, nestedItem := range nestedArr {
+				sb.WriteString("\n")
+				sb.WriteString(nestedIndent)
+				sb.WriteString("- ")
+				if err := encodeValue(sb, nestedItem, depth+2, options); err != nil {
+					return err
+				}
+			}
 		} else {
-			// Primitive or array
+			// Primitive item
+			sb.WriteString("- ")
+			if err := encodeValue(sb, item, 0, options); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func encodeArray(sb *strings.Builder, arr []interface{}, depth int, options EncodeOptions) error {
+	// This is called when array is the root value
+	if options.Version == V1 {
+		return encodeArrayV1(sb, arr, depth, options)
+	}
+
+	// V2 format (default)
+	if isPrimitiveArray(arr) {
+		// Inline format for primitive arrays at root
+		sb.WriteString(fmt.Sprintf("[%d]:", len(arr)))
+		if len(arr) > 0 {
+			sb.WriteString(" ")
+			for i, item := range arr {
+				if i > 0 {
+					sb.WriteString(",")
+				}
+				sb.WriteString(encodePrimitiveValue(item))
+			}
+		}
+	} else {
+		// List format for arrays with objects
+		sb.WriteString(fmt.Sprintf("[%d]:", len(arr)))
+
+		indent := strings.Repeat(" ", (depth+1)*options.IndentSize)
+
+		for _, item := range arr {
+			sb.WriteString("\n")
+			sb.WriteString(indent)
+
+			if obj, ok := item.(map[string]interface{}); ok {
+				if len(obj) == 0 {
+					// Empty object - just the hyphen, per spec
+					sb.WriteString("-")
+				} else {
+					sb.WriteString("- ")
+					keys := make([]string, 0, len(obj))
+					for k := range obj {
+						keys = append(keys, k)
+					}
+					sort.Strings(keys)
+
+					firstKey := keys[0]
+					firstVal := obj[firstKey]
+
+					sb.WriteString(firstKey)
+
+					if arrVal, ok := firstVal.([]interface{}); ok {
+						if err := encodeArrayWithKey(sb, arrVal, depth+1, options); err != nil {
+							return err
+						}
+					} else if objVal, ok := firstVal.(map[string]interface{}); ok {
+						sb.WriteString(":")
+						if len(objVal) > 0 {
+							sb.WriteString("\n")
+							if err := encodeObject(sb, objVal, depth+2, options); err != nil {
+								return err
+							}
+						}
+					} else {
+						sb.WriteString(": ")
+						if err := encodeValue(sb, firstVal, 0, options); err != nil {
+							return err
+						}
+					}
+
+					subIndent := strings.Repeat(" ", (depth+1)*options.IndentSize)
+					for i := 1; i < len(keys); i++ {
+						k := keys[i]
+						v := obj[k]
+						sb.WriteString("\n")
+						sb.WriteString(subIndent)
+						sb.WriteString(k)
+
+						if arrVal, ok := v.([]interface{}); ok {
+							if err := encodeArrayWithKey(sb, arrVal, depth+1, options); err != nil {
+								return err
+							}
+						} else if objVal, ok := v.(map[string]interface{}); ok {
+							sb.WriteString(":")
+							if len(objVal) > 0 {
+								sb.WriteString("\n")
+								if err := encodeObject(sb, objVal, depth+2, options); err != nil {
+									return err
+								}
+							}
+						} else {
+							sb.WriteString(": ")
+							if err := encodeValue(sb, v, 0, options); err != nil {
+								return err
+							}
+						}
+					}
+				}
+			} else if nestedArr, ok := item.([]interface{}); ok {
+				sb.WriteString("- ")
+				if isPrimitiveArray(nestedArr) {
+					sb.WriteString(fmt.Sprintf("[%d]:", len(nestedArr)))
+					if len(nestedArr) > 0 {
+						sb.WriteString(" ")
+						for i, nestedItem := range nestedArr {
+							if i > 0 {
+								sb.WriteString(",")
+							}
+							sb.WriteString(encodePrimitiveValue(nestedItem))
+						}
+					}
+				} else {
+					sb.WriteString(fmt.Sprintf("[%d]:", len(nestedArr)))
+					nestedIndent := strings.Repeat(" ", (depth+2)*options.IndentSize)
+					for _, nestedItem := range nestedArr {
+						sb.WriteString("\n")
+						sb.WriteString(nestedIndent)
+						sb.WriteString("- ")
+						if err := encodeValue(sb, nestedItem, depth+2, options); err != nil {
+							return err
+						}
+					}
+				}
+			} else {
+				sb.WriteString("- ")
+				if err := encodeValue(sb, item, 0, options); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// encodeArrayV1 encodes an array in TOON v1 format (list style)
+func encodeArrayV1(sb *strings.Builder, arr []interface{}, depth int, options EncodeOptions) error {
+	// V1 format: [N|] with list items
+	sb.WriteString(fmt.Sprintf("[%d|]", len(arr)))
+
+	indent := strings.Repeat(" ", (depth+1)*options.IndentSize)
+
+	for _, item := range arr {
+		sb.WriteString("\n")
+		sb.WriteString(indent)
+
+		if obj, ok := item.(map[string]interface{}); ok {
+			if len(obj) == 0 {
+				// Empty object - just the hyphen, per spec
+				sb.WriteString("-")
+			} else {
+				sb.WriteString("- ")
+				keys := make([]string, 0, len(obj))
+				for k := range obj {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+
+				firstKey := keys[0]
+				firstVal := obj[firstKey]
+
+				sb.WriteString(firstKey)
+
+				if arrVal, ok := firstVal.([]interface{}); ok {
+					if err := encodeArrayWithKeyV1(sb, arrVal, depth+1, options); err != nil {
+						return err
+					}
+				} else if objVal, ok := firstVal.(map[string]interface{}); ok {
+					sb.WriteString(":")
+					if len(objVal) > 0 {
+						sb.WriteString("\n")
+						if err := encodeObject(sb, objVal, depth+2, options); err != nil {
+							return err
+						}
+					}
+				} else {
+					sb.WriteString(": ")
+					if err := encodeValue(sb, firstVal, 0, options); err != nil {
+						return err
+					}
+				}
+
+				subIndent := strings.Repeat(" ", (depth+1)*options.IndentSize)
+				for i := 1; i < len(keys); i++ {
+					k := keys[i]
+					v := obj[k]
+					sb.WriteString("\n")
+					sb.WriteString(subIndent)
+					sb.WriteString(k)
+
+					if arrVal, ok := v.([]interface{}); ok {
+						if err := encodeArrayWithKeyV1(sb, arrVal, depth+1, options); err != nil {
+							return err
+						}
+					} else if objVal, ok := v.(map[string]interface{}); ok {
+						sb.WriteString(":")
+						if len(objVal) > 0 {
+							sb.WriteString("\n")
+							if err := encodeObject(sb, objVal, depth+2, options); err != nil {
+								return err
+							}
+						}
+					} else {
+						sb.WriteString(": ")
+						if err := encodeValue(sb, v, 0, options); err != nil {
+							return err
+						}
+					}
+				}
+			}
+		} else if nestedArr, ok := item.([]interface{}); ok {
+			sb.WriteString("- ")
+			sb.WriteString(fmt.Sprintf("[%d|]", len(nestedArr)))
+			nestedIndent := strings.Repeat(" ", (depth+2)*options.IndentSize)
+			for _, nestedItem := range nestedArr {
+				sb.WriteString("\n")
+				sb.WriteString(nestedIndent)
+				sb.WriteString("- ")
+				if err := encodeValue(sb, nestedItem, depth+2, options); err != nil {
+					return err
+				}
+			}
+		} else {
+			sb.WriteString("- ")
 			if err := encodeValue(sb, item, 0, options); err != nil {
 				return err
 			}
